@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
 {
     struct timespec ts1, ts2;
     char write_buf[] = "testing writing";
-    int offset = 180; /* TODO: try test something bigger than the limit */
+    int offset = 100; /* TODO: try test something bigger than the limit */
 
     int fd = open(FIB_DEV, O_RDWR);
     if (fd < 0) {
@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    unsigned int method = 0;  // 0 : original, 1 : fast doubling
+    unsigned int method = 1;  // 0 : original, 1 : fast doubling
     // method = atoi(argv[1]) & 1;
 
     for (int i = 0; i <= offset; i++) {
@@ -47,14 +47,14 @@ int main(int argc, char *argv[])
         read(fd, &buf, method);
         clock_gettime(CLOCK_REALTIME, &ts2);
         kct = write(fd, write_buf, strlen(write_buf));
-
+        /*
         printf("Reading from " FIB_DEV " at offset %d, returned the sequence ",
                i);
         print_uint128(buf, 0);
         printf(".\n");
-
-        // long uct = ts2.tv_nsec - ts1.tv_nsec;
-        // printf("%d    %lld    %ld    %lld\n", i, kct, uct, uct - kct);
+        */
+        long uct = ts2.tv_nsec - ts1.tv_nsec;
+        printf("%d    %lld    %ld    %lld\n", i, kct, uct, uct - kct);
     }
 
 
