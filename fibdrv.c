@@ -17,14 +17,42 @@ MODULE_VERSION("0.1");
 /* MAX_LENGTH is set to 92 because
  * ssize_t can't fit the number > 92
  */
-#define MAX_LENGTH 500
+#define MAX_LENGTH 180
 
-#define SWAP(x, y) \
-    do {           \
-        x ^= y;    \
-        y ^= x;    \
-        x ^= y;    \
+#define XOR_SWAP(a, b, type) \
+    do {                     \
+        type *__c = (a);     \
+        type *__d = (b);     \
+        *__c ^= *__d;        \
+        *__d ^= *__c;        \
+        *__c ^= *__d;        \
     } while (0)
+
+static void __swap(void *a, void *b, size_t size)
+{
+    if (a == b)
+        return;
+
+    switch (size) {
+    case 1:
+        XOR_SWAP(a, b, char);
+        break;
+    case 2:
+        XOR_SWAP(a, b, short);
+        break;
+    case 4:
+        XOR_SWAP(a, b, unsigned int);
+        break;
+    case 8:
+        XOR_SWAP(a, b, unsigned long);
+        break;
+    case 16:
+        XOR_SWAP(a, b, unsigned __int128);
+    default:
+        /* Do nothing */
+        break;
+    }
+}
 
 static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
@@ -32,17 +60,17 @@ static struct class *fib_class;
 static DEFINE_MUTEX(fib_mutex);
 static ktime_t kt;
 
-static long long fib_fast_doubling(long long k)
+static unsigned __int128 fib_fast_doubling(long long k)
 {
     if (k == 0)
         return 0;
 
-    long long f[2] = {0, 1};
+    unsigned __int128 f[2] = {0, 1};
     int m = 63 - __builtin_clzll(k);
 
     for (int i = 0; i <= m; i++) {
-        long long a = f[0] * (2 * f[1] - f[0]);   // F(2k)
-        long long b = f[1] * f[1] + f[0] * f[0];  // F(2k+1)
+        unsigned __int128 a = f[0] * (2 * f[1] - f[0]);   // F(2k)
+        unsigned __int128 b = f[1] * f[1] + f[0] * f[0];  // F(2k+1)
         if ((k >> (m - i)) & 1) {
             f[0] = b;
             f[1] = a + b;  // F(2k+2)
@@ -55,20 +83,20 @@ static long long fib_fast_doubling(long long k)
     return f[0];
 }
 
-static long long fib_sequence(long long k)
+static unsigned __int128 fib_sequence(long long k)
 {
-    long long f[2] = {0, 1};
+    unsigned __int128 f[2] = {0, 1};
 
     for (int i = 1; i <= k; i++) {
-        SWAP(f[0], f[1]);
+        __swap(&f[0], &f[1], sizeof(unsigned __int128));
         f[0] += f[1];
     }
 
     return f[0];
 }
 
-static long long (*fib_methods[])(long long) = {fib_sequence,
-                                                fib_fast_doubling};
+static unsigned __int128 (*fib_methods[])(long long) = {fib_sequence,
+                                                        fib_fast_doubling};
 
 static int fib_open(struct inode *inode, struct file *file)
 {
@@ -85,12 +113,12 @@ static int fib_release(struct inode *inode, struct file *file)
     return 0;
 }
 
-static long long fib_time_proxy(long long k, int method)
+
+static unsigned __int128 fib_time_proxy(long long k, int method)
 {
     kt = ktime_get();
-    long long result = fib_methods[method](k);
+    unsigned __int128 result = fib_methods[method](k);
     kt = ktime_sub(ktime_get(), kt);
-
     return result;
 }
 
@@ -100,7 +128,11 @@ static ssize_t fib_read(struct file *file,
                         size_t size,
                         loff_t *offset)
 {
-    return (ssize_t) fib_time_proxy(*offset, size);
+    unsigned __int128 result = fib_time_proxy(*offset, size);
+    if (copy_to_user(buf, &result, sizeof(unsigned __int128)))
+        return -EFAULT;
+
+    return 1;
 }
 
 /* write operation is skipped */
