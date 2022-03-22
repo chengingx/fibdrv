@@ -17,27 +17,58 @@ MODULE_VERSION("0.1");
 /* MAX_LENGTH is set to 92 because
  * ssize_t can't fit the number > 92
  */
-#define MAX_LENGTH 92
+#define MAX_LENGTH 500
+
+#define SWAP(x, y) \
+    do {           \
+        x ^= y;    \
+        y ^= x;    \
+        x ^= y;    \
+    } while (0)
 
 static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
 static struct class *fib_class;
 static DEFINE_MUTEX(fib_mutex);
+static ktime_t kt;
+
+static long long fib_fast_doubling(long long k)
+{
+    if (k == 0)
+        return 0;
+
+    long long f[2] = {0, 1};
+    int m = 63 - __builtin_clzll(k);
+
+    for (int i = 0; i <= m; i++) {
+        long long a = f[0] * (2 * f[1] - f[0]);   // F(2k)
+        long long b = f[1] * f[1] + f[0] * f[0];  // F(2k+1)
+        if ((k >> (m - i)) & 1) {
+            f[0] = b;
+            f[1] = a + b;  // F(2k+2)
+        } else {
+            f[0] = a;
+            f[1] = b;
+        }
+    }
+
+    return f[0];
+}
 
 static long long fib_sequence(long long k)
 {
-    /* FIXME: C99 variable-length array (VLA) is not allowed in Linux kernel. */
-    long long f[k + 2];
+    long long f[2] = {0, 1};
 
-    f[0] = 0;
-    f[1] = 1;
-
-    for (int i = 2; i <= k; i++) {
-        f[i] = f[i - 1] + f[i - 2];
+    for (int i = 1; i <= k; i++) {
+        SWAP(f[0], f[1]);
+        f[0] += f[1];
     }
 
-    return f[k];
+    return f[0];
 }
+
+static long long (*fib_methods[])(long long) = {fib_sequence,
+                                                fib_fast_doubling};
 
 static int fib_open(struct inode *inode, struct file *file)
 {
@@ -54,13 +85,22 @@ static int fib_release(struct inode *inode, struct file *file)
     return 0;
 }
 
+static long long fib_time_proxy(long long k, int method)
+{
+    kt = ktime_get();
+    long long result = fib_methods[method](k);
+    kt = ktime_sub(ktime_get(), kt);
+
+    return result;
+}
+
 /* calculate the fibonacci number at given offset */
 static ssize_t fib_read(struct file *file,
                         char *buf,
                         size_t size,
                         loff_t *offset)
 {
-    return (ssize_t) fib_sequence(*offset);
+    return (ssize_t) fib_time_proxy(*offset, size);
 }
 
 /* write operation is skipped */
@@ -69,7 +109,7 @@ static ssize_t fib_write(struct file *file,
                          size_t size,
                          loff_t *offset)
 {
-    return 1;
+    return ktime_to_ns(kt);
 }
 
 static loff_t fib_device_lseek(struct file *file, loff_t offset, int orig)

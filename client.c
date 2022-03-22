@@ -3,14 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #define FIB_DEV "/dev/fibonacci"
 
-int main()
+int main(int argc, char *argv[])
 {
-    long long sz;
-
+    struct timespec ts1, ts2;
     char buf[1];
     char write_buf[] = "testing writing";
     int offset = 100; /* TODO: try test something bigger than the limit */
@@ -21,27 +21,20 @@ int main()
         exit(1);
     }
 
-    for (int i = 0; i <= offset; i++) {
-        sz = write(fd, write_buf, strlen(write_buf));
-        printf("Writing to " FIB_DEV ", returned the sequence %lld\n", sz);
-    }
+    unsigned int method = 0;
+    method = atoi(argv[1]) & 1;
 
     for (int i = 0; i <= offset; i++) {
-        lseek(fd, i, SEEK_SET);
-        sz = read(fd, buf, 1);
-        printf("Reading from " FIB_DEV
-               " at offset %d, returned the sequence "
-               "%lld.\n",
-               i, sz);
-    }
+        long long sz, kct;
 
-    for (int i = offset; i >= 0; i--) {
         lseek(fd, i, SEEK_SET);
-        sz = read(fd, buf, 1);
-        printf("Reading from " FIB_DEV
-               " at offset %d, returned the sequence "
-               "%lld.\n",
-               i, sz);
+        clock_gettime(CLOCK_REALTIME, &ts1);
+        sz = read(fd, buf, method);
+        clock_gettime(CLOCK_REALTIME, &ts2);
+        kct = write(fd, write_buf, strlen(write_buf));
+
+        long uct = ts2.tv_nsec - ts1.tv_nsec;
+        printf("%d    %lld    %ld    %lld\n", i, kct, uct, uct - kct);
     }
 
     close(fd);
